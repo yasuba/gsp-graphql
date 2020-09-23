@@ -5,11 +5,10 @@ package edu.gemini.grackle
 
 import cats.Monad
 import cats.implicits._
+import edu.gemini.grackle.Query.Select
+import edu.gemini.grackle.QueryCompiler.{ComponentElaborator, SelectElaborator}
+import edu.gemini.grackle.QueryInterpreter.mkErrorResult
 import io.circe.Encoder
-
-import Query.Select
-import QueryCompiler.{ComponentElaborator, SelectElaborator}
-import QueryInterpreter.mkErrorResult
 
 trait Mapping[F[_]] {
   implicit val M: Monad[F]
@@ -66,7 +65,9 @@ trait Mapping[F[_]] {
   trait ObjectMapping extends TypeMapping {
     def fieldMappings: List[FieldMapping]
   }
+
   object ObjectMapping {
+
     case class DefaultObjectMapping(tpe: Type, fieldMappings: List[FieldMapping]) extends ObjectMapping
 
     def apply(tpe: Type, fieldMappings: List[FieldMapping]): ObjectMapping =
@@ -75,19 +76,24 @@ trait Mapping[F[_]] {
 
   trait FieldMapping extends Product with Serializable {
     def fieldName: String
+
     def withParent(tpe: Type): FieldMapping
   }
 
   trait RootMapping extends FieldMapping {
     def cursor(query: Query): F[Result[Cursor]]
+
     def withParent(tpe: Type): RootMapping
   }
 
   trait LeafMapping[T] extends TypeMapping {
     def tpe: Type
+
     def encoder: Encoder[T]
   }
+
   object LeafMapping {
+
     case class DefaultLeafMapping[T](tpe: Type, encoder: Encoder[T]) extends LeafMapping[T]
 
     def apply[T](tpe: Type)(implicit encoder: Encoder[T]): LeafMapping[T] =
@@ -100,6 +106,7 @@ trait Mapping[F[_]] {
   case class CursorField[T](fieldName: String, f: Cursor => Result[T], encoder: Encoder[T]) extends FieldMapping {
     def withParent(tpe: Type): CursorField[T] = this
   }
+
   object CursorField {
     def apply[T](fieldName: String, f: Cursor => Result[T])(implicit encoder: Encoder[T], di: DummyImplicit): CursorField[T] =
       new CursorField(fieldName, f, encoder)
@@ -110,10 +117,10 @@ trait Mapping[F[_]] {
   }
 
   case class Delegate(
-    fieldName: String,
-    interpreter: Mapping[F],
-    join: (Cursor, Query) => Result[Query] = ComponentElaborator.TrivialJoin
-  ) extends FieldMapping {
+                       fieldName: String,
+                       interpreter: Mapping[F],
+                       join: (Cursor, Query) => Result[Query] = ComponentElaborator.TrivialJoin
+                     ) extends FieldMapping {
     def withParent(tpe: Type): Delegate = this
   }
 
@@ -135,7 +142,18 @@ trait Mapping[F[_]] {
 
   def compilerPhases: List[QueryCompiler.Phase] = List(selectElaborator, componentElaborator)
 
-  lazy val compiler = new QueryCompiler(schema, compilerPhases)
+  lazy val unvalidatedMappings: List[NamedType] = {
+    val componentTypeMappings: List[Type] = typeMappings.flatMap {
+      case om: ObjectMapping => om.fieldMappings.collect {
+        case Delegate(_, interpreter, _) => interpreter.typeMappings.map(_.tpe)
+      }.flatten
+      case tm => List(tm.tpe)
+    }
+
+    (typeMappings.map(_.tpe) ::: componentTypeMappings).flatMap(_.asNamed.toList).filterNot(t => schema.types.map(_.name).contains(t.name))
+}
+
+  lazy val compiler = new QueryCompiler(schema, compilerPhases, unvalidatedMappings)
 
   val interpreter: QueryInterpreter[F] = new QueryInterpreter(this)
 }

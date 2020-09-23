@@ -253,5 +253,5 @@ object SkipIncludeMapping {
       """
     ).right.get
 
-  val compiler = new QueryCompiler(schema, Nil)
+  val compiler = new QueryCompiler(schema, Nil, Nil)
 }

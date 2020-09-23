@@ -280,8 +280,7 @@ object SimpleMapping {
         Unique(Eql(FieldPath(List("id")), Const(id)), child).rightIor
     }
   ))
-
-  val compiler = new QueryCompiler(schema, List(selectElaborator))
+  val compiler = new QueryCompiler(schema, List(selectElaborator), Nil)
 }
 
 trait DummyComponent extends SimpleMapping[Id] {

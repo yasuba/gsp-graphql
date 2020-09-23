@@ -3,9 +3,12 @@
 
 package world
 
+import cats.data.Ior
+import cats.effect.Sync
+import doobie.Transactor
 import io.circe.literal.JsonStringContext
 import io.circe.optics.JsonPath.root
-
+import io.chrisdavenport.log4cats.Logger
 import utils.DatabaseSuite
 
 final class WorldSpec extends DatabaseSuite {
@@ -981,5 +984,46 @@ final class WorldSpec extends DatabaseSuite {
     //println(res)
 
     assert(res == expected)
+  }
+
+  test("validate mappings for simple query") {
+    object UnvalidatedWorldMapping {
+      def fromTransactor[F[_] : Sync : Logger](transactor: Transactor[F]): WorldMapping[F] =
+        new WorldMapping[F](transactor, Logger[F]) {
+          override val typeMappings =
+            List(
+              ObjectMapping(
+                tpe = QueryType,
+                fieldMappings =
+                  List(
+                    DoobieRoot("country")
+                  )
+              ),
+              ObjectMapping(
+                tpe = CountryType,
+                fieldMappings =
+                  List(
+                    DoobieAttribute[String]("code", ColumnRef("country", "code")),
+                    DoobieFieldMapping.DoobieField("name", ColumnRef("country", "name"))
+                  )
+              )
+            )
+        }
+    }
+
+    lazy val unvalidatedMapping = UnvalidatedWorldMapping.fromTransactor(xa)
+
+    val query = """
+      query {
+        countries {
+          name
+        }
+      }
+    """
+
+    unvalidatedMapping.compiler.compile(query) match {
+      case Ior.Left(a) => assert(a.head.noSpaces.contains("hi"))
+      case unexpected => fail(s"This was unexpected $unexpected")
+    }
   }
 }

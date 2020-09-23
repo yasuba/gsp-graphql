@@ -138,5 +138,5 @@ object VariablesMapping {
     QueryType -> PartialFunction.empty
   ))
 
-  val compiler = new QueryCompiler(schema, List(selectElaborator))
+  val compiler = new QueryCompiler(schema, List(selectElaborator), Nil)
 }

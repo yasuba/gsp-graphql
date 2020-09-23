@@ -176,7 +176,7 @@ object QueryParser {
  * applies a collection of transformation phases in sequence, yielding a
  * query algebra term which can be directly interpreted.
  */
-class QueryCompiler(schema: Schema, phases: List[Phase]) {
+class QueryCompiler(schema: Schema, phases: List[Phase], unvalidatedMappings: List[NamedType]) {
   /**
    * Compiles the GraphQL query `text` to a query algebra term which
    * can be directly executed.
@@ -189,12 +189,16 @@ class QueryCompiler(schema: Schema, phases: List[Phase]) {
     val allPhases =
       if (useIntrospection) IntrospectionElaborator :: VariablesAndSkipElaborator :: phases else VariablesAndSkipElaborator :: phases
 
-    for {
-      parsed  <- QueryParser.parseText(text)
-      varDefs <- compileVarDefs(parsed.variables)
-      env     <- compileEnv(varDefs, untypedEnv)
-      query   <- allPhases.foldLeftM(parsed.query) { (acc, phase) => phase.transform(acc, env, schema, queryType) }
-    } yield query
+    val compiledQuery =
+      for {
+        parsed  <- QueryParser.parseText(text)
+        varDefs <- compileVarDefs(parsed.variables)
+        env     <- compileEnv(varDefs, untypedEnv)
+        query   <- allPhases.foldLeftM(parsed.query) { (acc, phase) => phase.transform(acc, env, schema, queryType) }
+      } yield query
+
+    if (unvalidatedMappings.isEmpty) compiledQuery
+    else mkErrorResult(s"Mappings validation failed. The following mappings were not found in the schema: ${unvalidatedMappings.map(_.name).mkString(", ")}")
   }
 
   def compileVarDefs(untypedVarDefs: UntypedVarDefs): Result[VarDefs] =
